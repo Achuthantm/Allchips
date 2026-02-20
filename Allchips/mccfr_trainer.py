@@ -6,7 +6,7 @@ import pickle
 import time
 
 # --- Constants & Abstractions ---
-ACTIONS = ["F", "C", "B66", "RP", "AI"] # Fold, Check/Call, Bet 66%, Raise Pot, All-In
+ACTIONS = ["F", "C", "B66", "AI"] # Fold, Check/Call, Bet 66%, All-In
 SB = 1
 BB = 2
 STACK = 200
@@ -81,32 +81,32 @@ class MCCFRTrainer:
         rd_name = ["", "Flop", "Turn", "River"][round_idx]
         for i, threshold in enumerate(self.boundaries[rd_name]):
             if hs < threshold: return i
-        return 99
+        return len(self.boundaries[rd_name])
 
     def get_legal_mask(self, last_bet, player_chips, opp_bet):
         mask = np.zeros(len(ACTIONS))
-        mask[0] = 1 # Fold is always legal if facing a bet
+        call_amt = opp_bet - last_bet
+        if call_amt > 0:
+            mask[0] = 1 # Fold is only legal if facing a bet
         mask[1] = 1 # Call/Check is always legal
         
-        call_amt = opp_bet - last_bet
         pot = last_bet + opp_bet
         remaining = player_chips - last_bet
         
         if remaining > call_amt:
-            # ACTIONS = ["F", "C", "B66", "RP", "AI"]
+            # ACTIONS = ["F", "C", "B66", "AI"]
             if int(0.66 * pot) > call_amt and int(0.66 * pot) < remaining: mask[2] = 1
-            if pot > call_amt and pot < remaining: mask[3] = 1
-            mask[4] = 1 # AI
+            mask[3] = 1 # AI
         return mask
 
-    def mccfr(self, p1_hand, p2_hand, board, history, round_idx, p1_bet, p2_bet, active_player, deck, p1_bucket, p2_bucket):
+    def mccfr(self, p1_hand, p2_hand, board, history, round_idx, p1_bet, p2_bet, active_player, deck, p1_bucket, p2_bucket, traversing_player):
         # 1. Terminal Check: Fold
         if history.endswith("F"):
             if active_player == 0: return p2_bet
             else: return -p1_bet
 
         # 2. Terminal Check: Showdown or Round Transition
-        is_round_over = (history.endswith("C") and len(history) >= 1) 
+        is_round_over = (history.endswith("C") and len(history) >= 1) or (history == "CC" and round_idx == 0)
         
         if is_round_over:
             if round_idx == 3: # River over -> Showdown
@@ -123,10 +123,10 @@ class MCCFRTrainer:
                 next_deck.shuffle()
                 new_cards = next_deck.deal(3 if round_idx == 0 else 1)
                 new_board = board + new_cards
-                # RE-CALCULATE BUCKETS ONCE PER ROUND
                 new_p1_bucket = self.get_hand_bucket(p1_hand, new_board, round_idx + 1)
                 new_p2_bucket = self.get_hand_bucket(p2_hand, new_board, round_idx + 1)
-                return self.mccfr(p1_hand, p2_hand, new_board, "", round_idx + 1, p1_bet, p2_bet, 0, next_deck, new_p1_bucket, new_p2_bucket)
+                # In HU, BB (player 1) acts first post-flop
+                return self.mccfr(p1_hand, p2_hand, new_board, "", round_idx + 1, p1_bet, p2_bet, 1, next_deck, new_p1_bucket, new_p2_bucket, traversing_player)
 
         # 3. Get Node/InfoSet
         bucket = p1_bucket if active_player == 0 else p2_bucket
@@ -142,55 +142,65 @@ class MCCFRTrainer:
 
         # 4. MCCFR Sampling
         strategy = node.get_strategy(legal_mask)
-        if active_player == 0: # Update P1 strategy
+        if active_player == traversing_player:
             action_utils = np.zeros(len(ACTIONS))
             for a_idx, action_code in enumerate(ACTIONS):
                 if legal_mask[a_idx] == 0: continue
                 
-                # Simulate action
-                new_p1_bet = p1_bet
-                if action_code == "C": new_p1_bet = p2_bet
-                elif action_code == "B66": new_p1_bet = min(STACK, p1_bet + int(0.66 * (p1_bet+p2_bet)))
-                elif action_code == "RP": new_p1_bet = min(STACK, p1_bet + (p1_bet+p2_bet))
-                elif action_code == "AI": new_p1_bet = STACK
+                new_p1_bet, new_p2_bet = p1_bet, p2_bet
+                if active_player == 0:
+                    if action_code == "C": new_p1_bet = p2_bet
+                    elif action_code == "B66": new_p1_bet = min(STACK, p1_bet + int(0.66 * (p1_bet+p2_bet)))
+                    elif action_code == "AI": new_p1_bet = STACK
+                else:
+                    if action_code == "C": new_p2_bet = p1_bet
+                    elif action_code == "B66": new_p2_bet = min(STACK, p2_bet + int(0.66 * (p1_bet+p2_bet)))
+                    elif action_code == "AI": new_p2_bet = STACK
                 
                 action_utils[a_idx] = self.mccfr(p1_hand, p2_hand, board, history + action_code, round_idx, 
-                                                 new_p1_bet, p2_bet, 1, deck, p1_bucket, p2_bucket)
+                                                 new_p1_bet, new_p2_bet, 1 - active_player, deck, p1_bucket, p2_bucket, traversing_player)
             
             util = np.sum(action_utils * strategy)
             regrets = (action_utils - util) * legal_mask
+            if active_player == 1: regrets = -regrets # Utility is from P0 perspective, flip for P1
             node.regret_sum += regrets
             return util
-        else: # Sample P2 action
+        else: # Sample other player's action
             a_idx = np.random.choice(len(ACTIONS), p=strategy)
             action_code = ACTIONS[a_idx]
             node.strategy_sum[a_idx] += 1
             
-            new_p2_bet = p2_bet
-            if action_code == "C": new_p2_bet = p1_bet
-            elif action_code == "B66": new_p2_bet = min(STACK, p2_bet + int(0.66 * (p1_bet+p2_bet)))
-            elif action_code == "RP": new_p2_bet = min(STACK, p2_bet + (p1_bet+p2_bet))
-            elif action_code == "AI": new_p2_bet = STACK
+            new_p1_bet, new_p2_bet = p1_bet, p2_bet
+            if active_player == 0:
+                if action_code == "C": new_p1_bet = p2_bet
+                elif action_code == "B66": new_p1_bet = min(STACK, p1_bet + int(0.66 * (p1_bet+p2_bet)))
+                elif action_code == "AI": new_p1_bet = STACK
+            else:
+                if action_code == "C": new_p2_bet = p1_bet
+                elif action_code == "B66": new_p2_bet = min(STACK, p2_bet + int(0.66 * (p1_bet+p2_bet)))
+                elif action_code == "AI": new_p2_bet = STACK
             
             return self.mccfr(p1_hand, p2_hand, board, history + action_code, round_idx, 
-                              p1_bet, new_p2_bet, 0, deck, p1_bucket, p2_bucket)
+                              new_p1_bet, new_p2_bet, 1 - active_player, deck, p1_bucket, p2_bucket, traversing_player)
 
     def train(self, iterations):
         for i in range(1, iterations + 1):
-            deck = eval7.Deck()
-            deck.shuffle()
-            p1_hand = deck.deal(2)
-            p2_hand = deck.deal(2)
+            for t_player in [0, 1]: # Alternate traversing player
+                deck = eval7.Deck()
+                deck.shuffle()
+                p1_hand = deck.deal(2)
+                p2_hand = deck.deal(2)
+                
+                p1_bucket = self.get_hand_bucket(p1_hand, [], 0)
+                p2_bucket = self.get_hand_bucket(p2_hand, [], 0)
+                
+                self.mccfr(p1_hand, p2_hand, [], "", 0, SB, BB, 0, deck, p1_bucket, p2_bucket, t_player)
             
-            p1_bucket = self.get_hand_bucket(p1_hand, [], 0)
-            p2_bucket = self.get_hand_bucket(p2_hand, [], 0)
-            
-            self.mccfr(p1_hand, p2_hand, [], "", 0, SB, BB, 0, deck, p1_bucket, p2_bucket)
             if i % 100 == 0:
                 print(f"Iteration {i}/{iterations} - Nodes: {len(self.nodes)}")
 
 if __name__ == "__main__":
     trainer = MCCFRTrainer()
-    trainer.train(10000)
+    trainer.train(100000)
     with open("mccfr_model.pkl", "wb") as f:
         pickle.dump(trainer.nodes, f)

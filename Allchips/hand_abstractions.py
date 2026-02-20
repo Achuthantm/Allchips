@@ -65,13 +65,12 @@ def generate_abstraction():
 
     # Postflop sampling
     rounds = {
-        "Flop": (3, 100),
-        "Turn": (4, 100),
-        "River": (5, 100)
+        "Flop": (3, 10),
+        "Turn": (4, 10),
+        "River": (5, 10)
     }
     
     boundaries = {}
-    examples = {}
     
     for rd_name, (board_size, num_buckets) in rounds.items():
         print(f"Sampling for {rd_name}...")
@@ -92,13 +91,6 @@ def generate_abstraction():
         rd_boundaries = [hs_values[int(len(hs_values) * i / num_buckets)] for i in range(1, num_buckets)]
         boundaries[rd_name] = rd_boundaries
         
-        # Get one example for each bucket
-        rd_examples = []
-        for i in range(num_buckets):
-            # Find a sample in the middle of this bucket's range
-            idx = int(len(sampled_data) * (i + 0.5) / num_buckets)
-            rd_examples.append(sampled_data[idx])
-        examples[rd_name] = rd_examples
 
     # Save to file
     import os
@@ -111,13 +103,8 @@ def generate_abstraction():
             f.write(f"{hand} : {preflop_mapping[hand]} : {hs:.4f}\n")
         
         for rd_name, bds in boundaries.items():
-            f.write(f"\nRound {rd_name} - 100 Buckets (PHS)\n")
+            f.write(f"\nRound {rd_name} - {len(bds)} Buckets (PHS)\n")
             f.write("Boundaries: " + ", ".join([f"{b:.4f}" for b in bds]) + "\n")
-            f.write("Examples (BucketID : HS : Hand : Board)\n")
-            for i, (hs, hand, board) in enumerate(examples[rd_name]):
-                hand_str = "".join([str(c) for c in hand])
-                board_str = "".join([str(c) for c in board])
-                f.write(f"{i} : {hs:.4f} : {hand_str} : {board_str}\n")
 
     print("Abstraction generated and saved to hand_abstractions.txt")
 

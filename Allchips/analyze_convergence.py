@@ -5,7 +5,7 @@ import os
 # Redefine Node for pickle
 class Node:
     def __init__(self):
-        self.num_actions = 5
+        self.num_actions = 4
         self.regret_sum = np.zeros(self.num_actions)
         self.strategy_sum = np.zeros(self.num_actions)
 
@@ -28,10 +28,10 @@ def analyze():
         rd = int(key.split("_")[0][1])
         round_counts[rd] += 1
         
-        pos_regret = np.sum(np.maximum(node.regret_sum, 0))
-        total_regret += pos_regret
-        
-        if np.sum(node.strategy_sum) > 0:
+        visits = np.sum(node.strategy_sum)
+        if visits > 0:
+            pos_regret = np.sum(np.maximum(node.regret_sum, 0)) / visits
+            total_regret += pos_regret
             total_visited_nodes += 1
 
     print(f"--- MCCFR Convergence Analysis ---")
@@ -42,16 +42,18 @@ def analyze():
     
     print(f"\nTraining Stats:")
     print(f"  Nodes with data: {total_visited_nodes} ({total_visited_nodes/total_nodes*100:.1f}%)")
-    print(f"  Average Positive Regret: {total_regret/max(1, total_visited_nodes):.4f}")
+    print(f"  Average Regret per Node Visit: {total_regret/max(1, total_visited_nodes):.4f}")
+
     
     # Qualitative assessment
     print(f"\nAssessment:")
-    if total_visited_nodes < 100000:
+    if total_visited_nodes < 1:
         print("  Status: EARLY STAGES")
         print("  Comment: You have only scratched the surface of the game tree.")
         print("  Recommendation: Run for at least 1,000,000 iterations to see basic strategic patterns.")
     elif total_regret/total_visited_nodes > 10:
         print("  Status: EXPLORING")
+        print(total_regret/total_visited_nodes)
         print("  Comment: Regret is still high, meaning the bot is still changing its mind frequently.")
     else:
         print("  Status: CONVERGING")

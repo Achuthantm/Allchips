@@ -1,8 +1,0 @@
-{
-    "gemini_cfr": "./SanityCheckBots/gemini_cfr",
-    "allin": "./SanityCheckBots/all_in_bot",
-    "checkcall": "./SanityCheckBots/check_call_bot",
-    "mnraise": "./SanityCheckBots/min_raise_bot",
-    "smartrandom": "./SanityCheckBots/smart_random_bot",
-    "python_skeleton": "./python_skeleton"
-}

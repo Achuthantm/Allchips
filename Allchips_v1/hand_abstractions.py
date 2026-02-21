@@ -60,7 +60,7 @@ def generate_abstraction():
         preflop_hs[hand] = calculate_hs(hc, [], trials=2000)
     
     # Sort hands by HS for 30 buckets
-    num_preflop_buckets = 5
+    num_preflop_buckets = 30
     sorted_preflop = sorted(preflop_hs.items(), key=lambda x: x[1])
     
     # Map each hand to one of 30 buckets
@@ -71,9 +71,9 @@ def generate_abstraction():
 
     # Postflop sampling
     rounds = {
-        "Flop": (3, 5),
-        "Turn": (4, 5),
-        "River": (5, 5)
+        "Flop": (3, 10),
+        "Turn": (4, 10),
+        "River": (5, 10)
     }
     
     boundaries = {}

@@ -83,7 +83,7 @@ class MCCFRTrainer:
             hs = self.hs_cache[key]
         else:
             from hand_abstractions import calculate_hs
-            hs = calculate_hs(hand, board, trials=100)
+            hs = calculate_hs(hand, board, trials=300)
             self.hs_cache[key] = hs
 
         rd_name = ["", "Flop", "Turn", "River"][round_idx]
@@ -113,14 +113,14 @@ class MCCFRTrainer:
         # In our history: X=Check, C=Call, B=Bet, A=All-In
         if p1_bet == p2_bet:
             if round_idx == 0: # Preflop
-                # Round over if BB checked (history ends in X) or someone called a raise (C and not first action)
-                return history.endswith("X") or (history.endswith("C") and history != "C")
+                # Round over if BB checked (history ends in X) or SB called and BB checked (CX)
+                return history.endswith("X") or history.endswith("CX")
             else: # Postflop
                 # Round over if both checked (XX) or second player called (ends in C)
                 return history.endswith("XX") or history.endswith("C")
         return False
 
-    def mccfr(self, p1_hand, p2_hand, board, history, round_idx, p1_bet, p2_bet, active_player, deck, p1_bucket, p2_bucket, traversing_player, p1_reach, p2_reach):
+    def mccfr(self, p1_hand, p2_hand, board, history, round_idx, p1_bet, p2_bet, active_player, deck, p1_bucket, p2_bucket, traversing_player):
         # 1. Terminal Check: Fold
         if history.endswith("F"):
             if active_player == 0: return p2_bet
@@ -145,7 +145,7 @@ class MCCFRTrainer:
                 new_p1_bucket = self.get_hand_bucket(p1_hand, new_board, round_idx + 1)
                 new_p2_bucket = self.get_hand_bucket(p2_hand, new_board, round_idx + 1)
                 # Post-flop: BB (1) acts first
-                return self.mccfr(p1_hand, p2_hand, new_board, "", round_idx + 1, p1_bet, p2_bet, 1, next_deck, new_p1_bucket, new_p2_bucket, traversing_player, p1_reach, p2_reach)
+                return self.mccfr(p1_hand, p2_hand, new_board, "", round_idx + 1, p1_bet, p2_bet, 1, next_deck, new_p1_bucket, new_p2_bucket, traversing_player)
 
         # 3. Get Node
         bucket = p1_bucket if active_player == 0 else p2_bucket
@@ -162,10 +162,6 @@ class MCCFRTrainer:
         # 4. MCCFR Sampling
         strategy = node.get_strategy(legal_mask)
         if active_player == traversing_player:
-            # Update strategy sum for traversing player
-            reach = p1_reach if active_player == 0 else p2_reach
-            node.strategy_sum += strategy * reach
-            
             action_utils = np.zeros(len(ACTIONS))
             for a_idx, action_code in enumerate(ACTIONS):
                 if legal_mask[a_idx] == 0: continue
@@ -173,24 +169,21 @@ class MCCFRTrainer:
                 new_p1_bet, new_p2_bet = p1_bet, p2_bet
                 call_amt = (p2_bet - p1_bet) if active_player == 0 else (p1_bet - p2_bet)
                 
-                h_code = action_code[0]
-                if action_code == "C" and call_amt == 0: h_code = "X"
+                # History code for this action
+                h_code = action_code[0] # F, C, B, A
+                if action_code == "C" and call_amt == 0: h_code = "X" # Check
                 
                 if active_player == 0:
                     if action_code == "C": new_p1_bet = p2_bet
                     elif action_code == "B66": new_p1_bet = min(STACK, p1_bet + int(0.66 * (p1_bet+p2_bet)))
                     elif action_code == "AI": new_p1_bet = STACK
-                    new_p1_reach = p1_reach * strategy[a_idx]
-                    new_p2_reach = p2_reach
                 else:
                     if action_code == "C": new_p2_bet = p1_bet
                     elif action_code == "B66": new_p2_bet = min(STACK, p2_bet + int(0.66 * (p1_bet+p2_bet)))
                     elif action_code == "AI": new_p2_bet = STACK
-                    new_p1_reach = p1_reach
-                    new_p2_reach = p2_reach * strategy[a_idx]
                 
                 action_utils[a_idx] = self.mccfr(p1_hand, p2_hand, board, history + h_code, round_idx, 
-                                                 new_p1_bet, new_p2_bet, 1 - active_player, deck, p1_bucket, p2_bucket, traversing_player, new_p1_reach, new_p2_reach)
+                                                 new_p1_bet, new_p2_bet, 1 - active_player, deck, p1_bucket, p2_bucket, traversing_player)
             
             util = np.sum(action_utils * strategy)
             regrets = (action_utils - util) * legal_mask
@@ -201,6 +194,9 @@ class MCCFRTrainer:
             a_idx = np.random.choice(len(ACTIONS), p=strategy)
             action_code = ACTIONS[a_idx]
             
+            # Weighted strategy sum update
+            node.strategy_sum += strategy
+            
             new_p1_bet, new_p2_bet = p1_bet, p2_bet
             call_amt = (p2_bet - p1_bet) if active_player == 0 else (p1_bet - p2_bet)
             h_code = action_code[0]
@@ -210,17 +206,13 @@ class MCCFRTrainer:
                 if action_code == "C": new_p1_bet = p2_bet
                 elif action_code == "B66": new_p1_bet = min(STACK, p1_bet + int(0.66 * (p1_bet+p2_bet)))
                 elif action_code == "AI": new_p1_bet = STACK
-                new_p1_reach = p1_reach * strategy[a_idx]
-                new_p2_reach = p2_reach
             else:
                 if action_code == "C": new_p2_bet = p1_bet
                 elif action_code == "B66": new_p2_bet = min(STACK, p2_bet + int(0.66 * (p1_bet+p2_bet)))
                 elif action_code == "AI": new_p2_bet = STACK
-                new_p1_reach = p1_reach
-                new_p2_reach = p2_reach * strategy[a_idx]
             
             return self.mccfr(p1_hand, p2_hand, board, history + h_code, round_idx, 
-                              new_p1_bet, new_p2_bet, 1 - active_player, deck, p1_bucket, p2_bucket, traversing_player, new_p1_reach, new_p2_reach)
+                              new_p1_bet, new_p2_bet, 1 - active_player, deck, p1_bucket, p2_bucket, traversing_player)
 
     def train(self, iterations):
         for i in range(1, iterations + 1):
@@ -233,7 +225,7 @@ class MCCFRTrainer:
                 p1_bucket = self.get_hand_bucket(p1_hand, [], 0)
                 p2_bucket = self.get_hand_bucket(p2_hand, [], 0)
                 
-                self.mccfr(p1_hand, p2_hand, [], "", 0, SB, BB, 0, deck, p1_bucket, p2_bucket, t_player, 1.0, 1.0)
+                self.mccfr(p1_hand, p2_hand, [], "", 0, SB, BB, 0, deck, p1_bucket, p2_bucket, t_player)
             
             if i % 100 == 0:
                 print(f"Iteration {i}/{iterations} - Nodes: {len(self.nodes)}")

@@ -1,3 +1,4 @@
+.vscode/
 ## Python Gitignore
 __pycache__/
 *.txt

@@ -1,0 +1,6 @@
+[submodule "ehs_calc/PokerHandEvaluator"]
+	path = ehs_calc/PokerHandEvaluator
+	url = https://github.com/HenryRLee/PokerHandEvaluator
+[submodule "ehs_calc/hand-isomorphism"]
+	path = ehs_calc/hand-isomorphism
+	url = https://github.com/kdub0/hand-isomorphism

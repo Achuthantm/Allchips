@@ -227,8 +227,10 @@ class MCCFRTrainer:
                 
                 self.mccfr(p1_hand, p2_hand, [], "", 0, SB, BB, 0, deck, p1_bucket, p2_bucket, t_player)
             
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 print(f"Iteration {i}/{iterations} - Nodes: {len(self.nodes)}")
+                with open("mccfr_model.pkl", "wb") as f:
+                    pickle.dump(trainer.nodes, f)
 
 if __name__ == "__main__":
     trainer = MCCFRTrainer()

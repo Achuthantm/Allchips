@@ -1,7 +1,33 @@
+## Python Gitignore
 __pycache__/
 *.txt
 *.class
 .DS_Store
 .idea/
 .metadata/
+
+## C++ Gitignore 
+*.d
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.ilk
+*.pdb
+*.so
+*.dylib
+*.dll
+*.so.*
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
+*.exe
+*.out
+*.app
 build/
+Build/

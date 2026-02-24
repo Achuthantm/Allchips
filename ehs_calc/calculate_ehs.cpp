@@ -38,8 +38,8 @@ double calculate_river_hs(const uint8_t* cards, const uint8_t* remaining) {
         int c1 = remaining[i];
         for(int j = i + 1; j < 45; ++j) {
             int o_score = evaluate_7cards(c1, remaining[j], b1, b2, b3, b4, b5);
-            if (p_score < o_score) wins++;
-            else if (p_score == o_score) ties++;
+            wins += (p_score < o_score);
+            ties += (p_score == o_score);
         }
     }
     

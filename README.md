@@ -12,13 +12,12 @@ A Texas Hold'em bot using Counterfactual Regret Minimization (CFR) and card inde
 *   **Make** for building the C++ tools.
 
 ### 1. Generating Hand Abstraction Caches
-To build the EHS and potential caches:
+To build and generate the EHS and bucket caches:
 ```bash
 cd ehs_calc
-make calculate_ehs
-./calculate_ehs
+./run.sh
 ```
-*This generates binary `.dat` files for Preflop, Flop, Turn, and River states, which are used by the C++ MCCFR solver.*
+*This script compiles the tools and generates binary `.dat` files for all rounds.*
 
 ### 2. Running a Bot (MIT Pokerbots Engine)
 Our bots use the MIT Pokerbots skeleton. To run a session:
@@ -58,6 +57,7 @@ Heavy computations are being moved to C++:
 - [x] **Hand Bucketing**: A tool to cluster hands based on EHS/$EHS^2$ data.
 - [ ] **C++ MCCFR Loop**: A solver focused on execution speed.
 - [ ] **Multithreading**: Adding multithreading to the EHS calculation and the MCCFR loop.
+- [ ] **Better Hand Abstraction**: Improve to a better hand abstraction algorithm like OCHS, EMD
 
 #### Exact EHS Calculation (`ehs_calc`)
 Unlike many poker tools that use Monte Carlo simulation to estimate hand strength, `ehs_calc` performs an **exact calculation** of EHS. 

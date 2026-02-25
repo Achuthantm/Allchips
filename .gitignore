@@ -1,4 +1,5 @@
 .vscode/
+tmp/
 ## Python Gitignore
 __pycache__/
 *.txt
@@ -30,5 +31,7 @@ __pycache__/
 *.exe
 *.out
 *.app
+bucketing
+calculate_ehs
 build/
 Build/

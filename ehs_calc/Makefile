@@ -35,15 +35,15 @@ SRCS_CXX = $(PHEVAL_DIR)/card_sampler.cc \
 OBJS_C = $(addprefix $(BUILD_DIR)/, $(SRCS_C:.c=.o))
 OBJS_CXX = $(addprefix $(BUILD_DIR)/, $(SRCS_CXX:.cc=.objcpp))
 
-TARGETS = test calculate_ehs
+TARGETS = calculate_ehs bucketing
 
 all: $(TARGETS)
 
-test: $(BUILD_DIR)/test.o $(OBJS_C) $(OBJS_CXX)
-	$(CXX) $(CXXFLAGS) -o test $^
-
 calculate_ehs: $(BUILD_DIR)/calculate_ehs.o $(OBJS_C) $(OBJS_CXX)
 	$(CXX) $(CXXFLAGS) -o calculate_ehs $^
+
+bucketing: $(BUILD_DIR)/bucketing.o
+	$(CXX) $(CXXFLAGS) -o bucketing $^
 
 # Rule for C++ objects (from .cpp)
 $(BUILD_DIR)/%.o: %.cpp

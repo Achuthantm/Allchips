@@ -54,7 +54,7 @@ void analyze_model(const string& filename) {
             if (data.regret_sum[a] > 0) node_pos_regret += data.regret_sum[a];
         }
 
-        uint8_t round = (uint8_t)(data.key >> 60);
+        uint8_t round = (uint8_t)(data.key >> 62);
         nodes_per_round[round]++;
         
         if (data.total_strat > 0) {
@@ -84,8 +84,8 @@ void analyze_model(const string& filename) {
 
     cout << "\nTop 5 Most Visited Nodes (Strategies):" << endl;
     for (int i = 0; i < min((int)num_nodes, 5); ++i) {
-        uint8_t round = (uint8_t)(all_nodes[i].key >> 60);
-        uint16_t bucket = (uint16_t)((all_nodes[i].key >> 48) & 0xFFF);
+        uint8_t round = (uint8_t)(all_nodes[i].key >> 62);
+        uint16_t bucket = (uint16_t)((all_nodes[i].key >> 52) & 0x3FF);
         cout << "Round " << (int)round << " | Bucket " << bucket << " | Visits: " << (int)all_nodes[i].total_strat << endl;
         cout << "  Strategy: ";
         for (int a = 0; a < NUM_ACTIONS; ++a) {

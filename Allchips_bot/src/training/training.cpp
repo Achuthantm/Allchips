@@ -32,35 +32,27 @@ const int BB = 2;
 
 typedef uint64_t InfoSetKey;
 
-inline InfoSetKey make_key(uint8_t round, uint16_t bucket, uint64_t history) {
-    return ((uint64_t)round << 60) | ((uint64_t)bucket << 48) | (history & 0xFFFFFFFFFFFFULL);
-}
-
-inline uint64_t push_history(uint64_t history, Action a) {
-    return (history << 4) | (a + 1);
-}
-
 struct Node {
-    float regret_sum[NUM_ACTIONS];
-    float strategy_sum[NUM_ACTIONS];
+    double regret_sum[NUM_ACTIONS];
+    double strategy_sum[NUM_ACTIONS];
 
     Node() {
         for (int i = 0; i < NUM_ACTIONS; ++i) {
-            regret_sum[i] = 0.0f;
-            strategy_sum[i] = 0.0f;
+            regret_sum[i] = 0.0;
+            strategy_sum[i] = 0.0;
         }
     }
 
     void get_strategy(float* strategy, const bool* legal_actions) {
-        float normalizing_sum = 0;
+        double normalizing_sum = 0;
         for (int i = 0; i < NUM_ACTIONS; ++i) {
-            strategy[i] = (legal_actions[i] && regret_sum[i] > 0) ? regret_sum[i] : 0;
+            strategy[i] = (legal_actions[i] && regret_sum[i] > 0) ? (float)regret_sum[i] : 0;
             normalizing_sum += strategy[i];
         }
 
         for (int i = 0; i < NUM_ACTIONS; ++i) {
             if (normalizing_sum > 0) {
-                strategy[i] /= normalizing_sum;
+                strategy[i] /= (float)normalizing_sum;
             } else {
                 int count = 0;
                 for (int j = 0; j < NUM_ACTIONS; ++j) if (legal_actions[j]) count++;
@@ -76,9 +68,10 @@ public:
     HandDataManager data_manager;
     hand_indexer_t indexer;
     mt19937 rng;
+    uniform_real_distribution<float> dist_01;
     long long iter_count = 0;
 
-    MCCFRTrainer() : rng(chrono::system_clock::now().time_since_epoch().count()) {
+    MCCFRTrainer() : rng(chrono::system_clock::now().time_since_epoch().count()), dist_01(0.0f, 1.0f) {
         if (!data_manager.loadAll("../../ehs_calc/data/")) {
             cerr << "Error: Failed to load hand abstraction data. Check if ../../ehs_calc/data/ exists." << endl;
             exit(1);
@@ -105,8 +98,8 @@ public:
             int b50 = call_amt + pot_after_call / 2;
             int b100 = call_amt + pot_after_call;
             
-            legal[BET_50] = (b50 > call_amt && b50 < remaining);
-            legal[BET_100] = (b100 > call_amt && b100 < remaining);
+            legal[BET_50] = (b50 > call_amt && b50 < remaining && (pot_after_call/2) >= 2);
+            legal[BET_100] = (b100 > call_amt && b100 < remaining && pot_after_call >= 2);
             legal[ALL_IN] = (remaining > call_amt);
         } else {
             legal[BET_50] = legal[BET_100] = legal[ALL_IN] = false;
@@ -118,37 +111,46 @@ public:
         int pot_after_call = (my_bet + opp_bet) + call_amt;
         switch (a) {
             case CALL: return opp_bet;
-            case BET_50: return min(my_chips, my_bet + call_amt + pot_after_call / 2);
-            case BET_100: return min(my_chips, my_bet + call_amt + pot_after_call);
+            case BET_50: return min(my_chips, opp_bet + pot_after_call / 2);
+            case BET_100: return min(my_chips, opp_bet + pot_after_call);
             case ALL_IN: return my_chips;
             default: return my_bet;
         }
     }
 
-    float mccfr(uint8_t* p1_cards, uint8_t* p2_cards, uint8_t* board, 
+    inline InfoSetKey make_key(uint8_t round, uint16_t bucket, uint64_t history) {
+        // Round: 2 bits, Bucket: 10 bits, History: 52 bits
+        return ((uint64_t)(round & 0x3) << 62) | ((uint64_t)(bucket & 0x3FF) << 52) | (history & 0xFFFFFFFFFFFFFULL);
+    }
+
+    inline uint64_t push_history(uint64_t history, Action a) {
+        return (history << 4) | (a + 1);
+    }
+
+    float mccfr(uint8_t* board, 
                 uint64_t history_bits, int round, int p1_bet, int p2_bet, 
                 int active_player, int traversing_player, int history_len,
                 hand_indexer_state_t p1_state, hand_indexer_state_t p2_state,
-                hand_index_t p1_idx, hand_index_t p2_idx) {
+                hand_index_t p1_idx, hand_index_t p2_idx,
+                int s1, int s2) {
         
-        // 1. Terminal Check: Fold
+        // Terminal Check: Fold
         if (history_len > 0 && ((history_bits & 0xF) == (FOLD + 1))) {
-            // active_player is the one who folded. Utility for Player 0:
-            // If P0 folds, they lose p1_bet. If P1 folds, P0 wins p2_bet.
-            return (active_player == 0) ? (float)-p1_bet : (float)p2_bet;
+            // active_player is the one who was SUPPOSED to act. 
+            // This means the OTHER player folded.
+            // If active_player == 0, it means Player 1 folded. P0 wins p2_bet.
+            // If active_player == 1, it means Player 0 folded. P0 loses p1_bet.
+            return (active_player == 0) ? (float)p2_bet : (float)-p1_bet;
         }
 
-        // 2. Terminal Check: Round Transition or Showdown
+        // Terminal Check: Round Transition or Showdown
         if (p1_bet == p2_bet && history_len >= 2) {
             if (round == 3) {
-                int s1 = evaluate_7cards(p1_cards[0], p1_cards[1], board[0], board[1], board[2], board[3], board[4]);
-                int s2 = evaluate_7cards(p2_cards[0], p2_cards[1], board[0], board[1], board[2], board[3], board[4]);
-                // Lower score is better in phevaluator
-                if (s1 < s2) return (float)p2_bet; // P1 wins P2's contribution
-                if (s1 > s2) return (float)-p1_bet; // P1 loses their contribution
+                // Showdown utility for Player 0
+                if (s1 < s2) return (float)p2_bet;  // P0 wins P1's contribution
+                if (s1 > s2) return (float)-p1_bet; // P0 loses their contribution
                 return 0.0f;
             } else {
-                // Transition to next round: Advance indexer states
                 hand_indexer_state_t next_p1_state = p1_state;
                 hand_indexer_state_t next_p2_state = p2_state;
                 uint8_t* next_cards = (round == 0) ? board : (round == 1 ? board + 3 : board + 4);
@@ -156,8 +158,8 @@ public:
                 hand_index_t next_p2_idx = hand_index_next_round(&indexer, next_cards, &next_p2_state);
                 
                 // Heads-up: BB (1) acts first post-flop
-                return mccfr(p1_cards, p2_cards, board, 0, round + 1, p1_bet, p2_bet, 1, traversing_player, 0, 
-                             next_p1_state, next_p2_state, next_p1_idx, next_p2_idx);
+                return mccfr(board, 0, round + 1, p1_bet, p2_bet, 1, traversing_player, 0, 
+                             next_p1_state, next_p2_state, next_p1_idx, next_p2_idx, s1, s2);
             }
         }
 
@@ -187,28 +189,41 @@ public:
                     if (active_player == 0) n1 = bet; else n2 = bet;
                 }
 
-                action_utils[a] = mccfr(p1_cards, p2_cards, board, 
+                action_utils[a] = mccfr(board, 
                                         push_history(history_bits, (Action)a), 
                                         round, n1, n2, 1 - active_player, traversing_player, history_len + 1,
-                                        p1_state, p2_state, p1_idx, p2_idx);
+                                        p1_state, p2_state, p1_idx, p2_idx, s1, s2);
             }
 
             float util = 0;
             for (int a = 0; a < NUM_ACTIONS; ++a) util += strategy[a] * action_utils[a];
             for (int a = 0; a < NUM_ACTIONS; ++a) {
                 if (legal[a]) {
+                    // Regret calculation for traversing player
                     float regret = (active_player == 0) ? (action_utils[a] - util) : (util - action_utils[a]);
-                    node.regret_sum[a] = max(0.0f, node.regret_sum[a] + regret);
+                    node.regret_sum[a] = max(0.0, node.regret_sum[a] + (double)regret); // RM+
                 }
             }
             return util;
         } else {
-            // Standard Sampling
-            discrete_distribution<int> dist(strategy, strategy + NUM_ACTIONS);
-            int a = dist(rng);
+            // Epsilon-Greedy Sampling to break passivity deadlocks
+            int a;
+            if (dist_01(rng) < 0.1f) {
+                vector<int> choices;
+                for(int i=0; i<NUM_ACTIONS; ++i) if (legal[i]) choices.push_back(i);
+                a = choices[rng() % choices.size()];
+            } else {
+                float r = dist_01(rng);
+                float cumulative = 0;
+                a = NUM_ACTIONS - 1;
+                for (int i = 0; i < NUM_ACTIONS; ++i) {
+                    cumulative += strategy[i];
+                    if (r < cumulative) { a = i; break; }
+                }
+            }
             
-            float weight = (float)iter_count;
-            for (int i = 0; i < NUM_ACTIONS; ++i) node.strategy_sum[i] += weight * strategy[i];
+            double weight = (double)iter_count;
+            for (int i = 0; i < NUM_ACTIONS; ++i) node.strategy_sum[i] += weight * (double)strategy[i];
 
             int n1 = p1_bet, n2 = p2_bet;
             if (a == CALL) {
@@ -218,10 +233,10 @@ public:
                                                     (active_player == 0 ? p2_bet : p1_bet), STACK);
                 if (active_player == 0) n1 = bet; else n2 = bet;
             }
-            return mccfr(p1_cards, p2_cards, board, 
+            return mccfr(board, 
                          push_history(history_bits, (Action)a), 
                          round, n1, n2, 1 - active_player, traversing_player, history_len + 1,
-                         p1_state, p2_state, p1_idx, p2_idx);
+                         p1_state, p2_state, p1_idx, p2_idx, s1, s2);
         }
     }
 
@@ -239,6 +254,9 @@ public:
             uint8_t p1_cards[2] = {deck[0], deck[1]};
             uint8_t p2_cards[2] = {deck[2], deck[3]};
             uint8_t board[5] = {deck[4], deck[5], deck[6], deck[7], deck[8]};
+
+            int s1 = evaluate_7cards(p1_cards[0], p1_cards[1], board[0], board[1], board[2], board[3], board[4]);
+            int s2 = evaluate_7cards(p2_cards[0], p2_cards[1], board[0], board[1], board[2], board[3], board[4]);
             
             hand_indexer_state_t p1_state, p2_state;
             hand_indexer_state_init(&indexer, &p1_state);
@@ -247,10 +265,10 @@ public:
             hand_index_t p2_idx = hand_index_next_round(&indexer, p2_cards, &p2_state);
 
             for (int t = 0; t < 2; ++t) {
-                mccfr(p1_cards, p2_cards, board, 0, 0, SB, BB, 0, t, 0, p1_state, p2_state, p1_idx, p2_idx);
+                mccfr(board, 0, 0, SB, BB, 0, t, 0, p1_state, p2_state, p1_idx, p2_idx, s1, s2);
             }
 
-            if (i % 100000 == 0) {
+            if (i % 200000 == 0) {
                 auto now = chrono::high_resolution_clock::now();
                 chrono::duration<double> elapsed = now - last_report;
                 int it_per_sec = (int)((i - last_i) / elapsed.count());
@@ -271,8 +289,14 @@ public:
             InfoSetKey key = it.first;
             const Node& node = it.second;
             out.write((char*)&key, sizeof(InfoSetKey));
-            out.write((char*)node.regret_sum, sizeof(float) * NUM_ACTIONS);
-            out.write((char*)node.strategy_sum, sizeof(float) * NUM_ACTIONS);
+            
+            float r_sum[NUM_ACTIONS], s_sum[NUM_ACTIONS];
+            for(int i=0; i<NUM_ACTIONS; ++i) {
+                r_sum[i] = (float)node.regret_sum[i];
+                s_sum[i] = (float)node.strategy_sum[i];
+            }
+            out.write((char*)r_sum, sizeof(float) * NUM_ACTIONS);
+            out.write((char*)s_sum, sizeof(float) * NUM_ACTIONS);
         }
         out.close();
     }

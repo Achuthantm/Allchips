@@ -35,7 +35,8 @@ struct Node {
 };
 
 inline InfoSetKey make_key(uint8_t round, uint16_t bucket, uint64_t history) {
-    return ((uint64_t)round << 60) | ((uint64_t)bucket << 48) | (history & 0xFFFFFFFFFFFFULL);
+    // Round: 2 bits, Bucket: 10 bits, History: 52 bits (Matches optimized trainer)
+    return ((uint64_t)(round & 0x3) << 62) | ((uint64_t)(bucket & 0x3FF) << 52) | (history & 0xFFFFFFFFFFFFFULL);
 }
 
 inline uint64_t push_history(uint64_t history, ModelAction a) {
@@ -102,15 +103,15 @@ public:
     ModelAction reverseMap(int current_opp_pip, int last_opp_pip, int my_pip, int pot_at_start) {
         if (current_opp_pip <= my_pip) return CALL;
 
-        int pot_after_call = pot_at_start + 2 * my_pip;
+        // Correct: Pot size if opponent just called my current commitment
+        int pot_after_opp_calls_me = pot_at_start + 2 * my_pip; 
         
         // Abstraction bets (Total Pip this street):
         int d_call = my_pip;
-        int d_50 = my_pip + pot_after_call / 2;
-        int d_100 = my_pip + pot_after_call;
+        int d_50 = my_pip + pot_after_opp_calls_me / 2;
+        int d_100 = my_pip + pot_after_opp_calls_me;
         int d_ai = STARTING_STACK;
 
-        // Closest relative distance mapping
         std::vector<std::pair<int, ModelAction>> options = {
             {d_call, CALL}, {d_50, BET_50}, {d_100, BET_100}, {d_ai, ALL_IN}
         };
@@ -145,10 +146,7 @@ public:
             last_street = street;
         }
 
-        // Map engine street to our round index
         int round_idx = (street == 0) ? 0 : (street == 3 ? 1 : (street == 4 ? 2 : 3));
-
-        // Update history based on opponent's last move
         int opp = 1 - active;
         int pot_at_start = 2 * STARTING_STACK - roundState->stacks[0] - roundState->stacks[1] - roundState->pips[0] - roundState->pips[1];
         
@@ -159,7 +157,6 @@ public:
         }
         last_pip[opp] = roundState->pips[opp];
 
-        // Hand Indexing
         hand_indexer_state_t state;
         hand_indexer_state_init(&indexer, &state);
         uint8_t cards[2];
@@ -184,41 +181,43 @@ public:
         uint16_t bucket = data_manager.getBucket(round_idx, h_idx);
         InfoSetKey key = make_key(round_idx, bucket, round_history_bits);
 
+        bool legal[NUM_ACTIONS];
+        int call_amt = roundState->pips[opp] - roundState->pips[active];
+        int pot = pot_at_start + roundState->pips[0] + roundState->pips[1];
+        int remaining = roundState->stacks[active];
+        int pot_after_call = pot + call_amt;
+
+        legal[FOLD] = (call_amt > 0);
+        legal[CALL] = true;
+        legal[BET_50] = (remaining > call_amt && (call_amt + pot_after_call/2) < remaining && (pot_after_call/2) >= 2);
+        legal[BET_100] = (remaining > call_amt && (call_amt + pot_after_call) < remaining && pot_after_call >= 2);
+        legal[ALL_IN] = (remaining > call_amt);
+
         ModelAction chosen_a = CALL;
+        float strategy[NUM_ACTIONS];
+        float sum = 0;
+
         if (model.find(key) != model.end()) {
             Node& n = model[key];
-            
-            // Mask illegal actions
-            bool legal[NUM_ACTIONS];
-            int call_amt = roundState->pips[opp] - roundState->pips[active];
-            int pot = pot_at_start + roundState->pips[0] + roundState->pips[1];
-            
-            legal[FOLD] = (call_amt > 0);
-            legal[CALL] = true;
-            int remaining = roundState->stacks[active];
-            int pot_after_call = pot + call_amt;
-            legal[BET_50] = (remaining > call_amt && (call_amt + pot_after_call/2) < remaining);
-            legal[BET_100] = (remaining > call_amt && (call_amt + pot_after_call) < remaining);
-            legal[ALL_IN] = (remaining > call_amt);
-
-            float strategy[NUM_ACTIONS];
-            float sum = 0;
             for(int i=0; i<NUM_ACTIONS; ++i) {
                 strategy[i] = (legal[i]) ? n.strategy_sum[i] : 0;
                 sum += strategy[i];
             }
-
-            if (sum > 0) {
-                float r = (float)rng() / rng.max();
-                float cur = 0;
-                for(int i=0; i<NUM_ACTIONS; ++i) {
-                    cur += strategy[i] / sum;
-                    if (r <= cur) { chosen_a = (ModelAction)i; break; }
-                }
-            }
         }
 
-        // Map back to engine actions
+        if (sum > 0) {
+            float r = (float)rng() / rng.max();
+            float cur = 0;
+            for(int i=0; i<NUM_ACTIONS; ++i) {
+                cur += strategy[i] / sum;
+                if (r <= cur) { chosen_a = (ModelAction)i; break; }
+            }
+        } else {
+            std::vector<ModelAction> choices;
+            for(int i=0; i<NUM_ACTIONS; ++i) if (legal[i]) choices.push_back((ModelAction)i);
+            chosen_a = choices[rng() % choices.size()];
+        }
+
         round_history_bits = push_history(round_history_bits, chosen_a);
 
         if (chosen_a == FOLD) return {Action::Type::FOLD};
@@ -228,10 +227,6 @@ public:
         }
         
         auto raiseBounds = roundState->raiseBounds();
-        int pot = pot_at_start + roundState->pips[0] + roundState->pips[1];
-        int call_amt = roundState->pips[opp] - roundState->pips[active];
-        int pot_after_call = pot + call_amt;
-        
         int raise_to = roundState->pips[opp];
         if (chosen_a == BET_50) raise_to += pot_after_call / 2;
         else if (chosen_a == BET_100) raise_to += pot_after_call;

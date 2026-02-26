@@ -305,7 +305,7 @@ public:
 int main() {
     MCCFRTrainer trainer;
     cout << "Starting Optimized MCCFR Training..." << endl;
-    trainer.train(10000000); 
+    trainer.train(100000000); 
     trainer.save("cpp_mccfr_model.dat");
     return 0;
 }

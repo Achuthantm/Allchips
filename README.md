@@ -4,6 +4,22 @@ A high-performance Texas Hold'em bot using Monte Carlo Counterfactual Regret Min
 
 ---
 
+## Technical Approach
+
+### Exact EHS Calculation
+Unlike many poker tools that use Monte Carlo simulation to estimate hand strength, our tool performs an **exact calculation** of EHS. 
+*   **Recursive DP Approach**: The engine works backwards from the River.
+    1.  **River**: Exhaustively evaluates every possible opponent hand (990 combinations) to get a perfect Hand Strength (HS).
+    2.  **Turn/Flop/Preflop**: Calculates the EHS for earlier rounds by averaging the cached values of all possible future canonical states similar to a dynamic programming style method. 
+*   **Accuracy**: This eliminates sampling noise and provides a stable foundation for clustering and CFR training.
+
+### Betting Abstraction
+The bot uses a discrete betting model to manage state complexity while retaining strategic depth:
+*   **Actions**: FOLD, CALL, 50% POT, 100% POT, ALL-IN.
+*   **Action Translation**: Opponent bets of any size are "reverse mapped" to the nearest abstraction using techniques described in the **Tartanian** paper. This allows the bot to respond intelligently to any bet size by translating it into its own strategic framework.
+
+---
+
 ## Features
 
 *   **Native C++ Implementation**: The core engine, trainer, and bot are written in C++ for maximum performance and throughput.
@@ -60,22 +76,6 @@ cd Allchips_v2
 *   `Allchips_v2/`: Core C++ implementation of the MCCFR trainer and the game bot.
 *   `SanityCheckBots/`: Baseline bots (Random, All-In, Min-Raise) for validation.
 *   `engine.py`: Local instance of the MIT Pokerbots game engine.
-
----
-
-## Technical Approach
-
-### Exact EHS Calculation
-Unlike many poker tools that use Monte Carlo simulation to estimate hand strength, our tool performs an **exact calculation** of EHS. 
-*   **Recursive DP Approach**: The engine works backwards from the River.
-    1.  **River**: Exhaustively evaluates every possible opponent hand (990 combinations) to get a perfect Hand Strength (HS).
-    2.  **Turn/Flop/Preflop**: Calculates the EHS for earlier rounds by averaging the cached values of all possible future canonical states similar to a dynamic programming style method. 
-*   **Accuracy**: This eliminates sampling noise and provides a stable foundation for clustering and CFR training.
-
-### Betting Abstraction
-The bot uses a discrete betting model to manage state complexity while retaining strategic depth:
-*   **Actions**: FOLD, CALL, 50% POT, 100% POT, ALL-IN.
-*   **Action Translation**: Opponent bets of any size are "reverse mapped" to the nearest abstraction using techniques described in the **Tartanian** paper. This allows the bot to respond intelligently to any bet size by translating it into its own strategic framework.
 
 ---
 

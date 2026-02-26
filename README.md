@@ -1,47 +1,63 @@
 # PokerBot
 
-A Texas Hold'em bot using Counterfactual Regret Minimization (CFR) and card indexing. This repository contains tools for generating hand abstractions, training models, and running bots compatible with the **MIT Pokerbots** engine.
+A high-performance Texas Hold'em bot using Monte Carlo Counterfactual Regret Minimization (MCCFR) and advanced hand abstraction. This repository contains tools for exact Effective Hand Strength (EHS) calculation, optimized C++ model training, and a fast bot compatible with the **MIT Pokerbots** engine.
+
+---
+
+## Features
+
+*   **Native C++ Implementation**: The core engine, trainer, and bot are written in C++ for maximum performance and throughput.
+*   **Optimized MCCFR**: High-speed solver achieving over 1 million iterations per minute, enabling training on deep game trees.
+*   **Advanced Hand Abstraction**: 
+    *   **10-bit EHS Bucketing**: Clustering hands based on exact EHS and $EHS^2$ data.
+    *   **52-bit History Encoding**: Fine-grained information sets capturing the full betting sequence.
+*   **Exact EHS Calculation**: Avoids sampling noise by performing exhaustive DP-based calculations across all streets.
+*   **High-Speed Evaluation**: Leverages the `phevaluator` and `hand-isomorphism` libraries for near-instantaneous hand indexing and evaluation.
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
-*   **C++11/14** (GCC or Clang) for EHS calculations.
-*   **Python 3.8+** for the training environment and bot runtime.
-*   **Make** for building the C++ tools.
+*   **C++14** (GCC or Clang)
+*   **CMake** (3.10+)
+*   **Python 3.8+** (for running the engine)
+*   **Make**
 
 ### 1. Generating Hand Abstraction Caches
-To build and generate the EHS and bucket caches:
+To build and generate the exact EHS and bucket caches:
 ```bash
 cd ehs_calc
 ./run.sh
 ```
-*This script compiles the tools and generates binary `.dat` files for all rounds.*
+*This performs exhaustive calculations from River to Preflop and saves binary `.dat` files.*
 
-### 2. Running a Bot (MIT Pokerbots Engine)
-Our bots use the MIT Pokerbots skeleton. To run a session:
+### 2. Building and Training the Model
+To build the trainer and run the MCCFR loop:
+```bash
+cd Allchips_v2
+./build.sh
+./build/training/training
+```
+*The trainer will generate `cpp_mccfr_model.dat` after completing the specified iterations (default: 10M).*
+
+### 3. Running the Bot
+The bot integrates directly with the MIT Pokerbots engine.
 ```bash
 # Start the engine
 python engine.py
 
 # In a separate terminal, run the bot
-python Allchips_v1/skeleton/runner.py --port 5005
-```
-
-### 3. Training the MCCFR Model
-To train the Python-based MCCFR model:
-```bash
-cd Allchips_v1
-python mccfr_trainer.py
+cd Allchips_v2
+./run.sh --port 5005
 ```
 
 ---
 
 ## Project Structure
 
-*   `ehs_calc/`: C++ tool for EHS and $EHS^2$ calculation and state abstraction.
-*   `Allchips_v1/`: Prototype MCCFR bot in Python with coarse hand abstraction.
+*   `ehs_calc/`: C++ tool for exact EHS and $EHS^2$ calculation and state abstraction.
+*   `Allchips_v2/`: Core C++ implementation of the MCCFR trainer and the game bot.
 *   `SanityCheckBots/`: Baseline bots (Random, All-In, Min-Raise) for validation.
 *   `engine.py`: Local instance of the MIT Pokerbots game engine.
 
@@ -49,33 +65,29 @@ python mccfr_trainer.py
 
 ## Technical Approach
 
-### 1. Current Status: `Allchips_v1`
-The current prototype uses a Python-based MCCFR trainer with basic hand buckets.
-
-### 2. C++ Core Implementation
-Heavy computations are being moved to C++:
-- [x] **Hand Bucketing**: A tool to cluster hands based on EHS/$EHS^2$ data.
-- [ ] **C++ MCCFR Loop**: A solver focused on execution speed.
-- [ ] **Multithreading**: Adding multithreading to the EHS calculation and the MCCFR loop.
-- [ ] **Better Hand Abstraction**: Improve to a better hand abstraction algorithm like OCHS, EMD
-
-#### Exact EHS Calculation (`ehs_calc`)
-Unlike many poker tools that use Monte Carlo simulation to estimate hand strength, `ehs_calc` performs an **exact calculation** of EHS. 
+### Exact EHS Calculation
+Unlike many poker tools that use Monte Carlo simulation to estimate hand strength, our tool performs an **exact calculation** of EHS. 
 *   **Recursive DP Approach**: The engine works backwards from the River.
     1.  **River**: Exhaustively evaluates every possible opponent hand (990 combinations) to get a perfect Hand Strength (HS).
-    2.  **Turn/Flop/Preflop**: Calculates the EHS for earlier rounds by averaging the cached values of all possible future canonical states. 
+    2.  **Turn/Flop/Preflop**: Calculates the EHS for earlier rounds by averaging the cached values of all possible future canonical states similar to a dynamic programming style method. 
 *   **Accuracy**: This eliminates sampling noise and provides a stable foundation for clustering and CFR training.
+
+### Betting Abstraction
+The bot uses a discrete betting model to manage state complexity while retaining strategic depth:
+*   **Actions**: FOLD, CALL, 50% POT, 100% POT, ALL-IN.
+*   **Action Translation**: Opponent bets of any size are "reverse mapped" to the nearest abstraction using techniques described in the **Tartanian** paper. This allows the bot to respond intelligently to any bet size by translating it into its own strategic framework.
 
 ---
 
 ## Background and References
 
-This implementation is based on several papers and existing libraries:
+### Betting Abstraction and Action Translation
+The strategy for mapping continuous betting spaces into discrete actions and translating opponent actions:
+*   **Paper**: [Gilpin et al., "A Better Strategy for Strategic Betting" (AAMAS 2008)](https://www.cs.cmu.edu/~sandholm/tartanian.AAMAS08.pdf).
 
 ### Hand Abstraction
 We use a hand abstraction based on **Effective Hand Strength (EHS)** and its second moment, **$EHS^2$**.
 *   **Paper**: [Johanson et al., "Efficient Approximation of Control States in Extensive-Form Games" (AAMAS 2013)](https://poker.cs.ualberta.ca/publications/AAMAS13-abstraction.pdf).
-*   *Note*: EHS captures the expected value, while $EHS^2$ captures the potential of the hand to improve or be outdrawn.
 
 ### Hand Isomorphism
 To manage the number of possible game states, we map suit-equivalent hands to canonical indices.

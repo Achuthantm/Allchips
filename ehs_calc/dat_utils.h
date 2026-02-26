@@ -17,6 +17,14 @@ struct EHSData {
     float ehs2;
 };
 
+inline uint8_t stringToCard(const std::string& s) {
+    std::string ranks = "23456789TJQKA";
+    std::string suits = "cdhs";
+    int r = ranks.find(s[0]);
+    int s_idx = suits.find(s[1]);
+    return (uint8_t)(r * 4 + s_idx);
+}
+
 class HandDataManager {
 public:
     HandDataManager() {

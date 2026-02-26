@@ -74,9 +74,9 @@ void process_street(const char* input_file, const char* output_file, int num_buc
 }
 
 int main() {
-    process_street("preflop_ehs.dat", "preflop_buckets.dat", buckets[0]);
-    process_street("flop_ehs.dat", "flop_buckets.dat", buckets[1]);
-    process_street("turn_ehs.dat", "turn_buckets.dat", buckets[2]);
-    process_street("river_ehs.dat", "river_buckets.dat", buckets[3]);
+    process_street("data/preflop_ehs.dat", "data/preflop_buckets.dat", buckets[0]);
+    process_street("data/flop_ehs.dat", "data/flop_buckets.dat", buckets[1]);
+    process_street("data/turn_ehs.dat", "data/turn_buckets.dat", buckets[2]);
+    process_street("data/river_ehs.dat", "data/river_buckets.dat", buckets[3]);
     return 0;
 }

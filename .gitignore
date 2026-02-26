@@ -31,6 +31,7 @@ __pycache__/
 *.exe
 *.out
 *.app
+*.dat
 bucketing
 calculate_ehs
 build/

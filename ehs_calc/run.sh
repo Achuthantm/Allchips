@@ -19,4 +19,4 @@ echo "--- Generating Buckets ---"
 echo ""
 echo "--- Done! ---"
 echo "Generated files:"
-ls -lh *.dat
+ls -lh data/*.dat

@@ -35,7 +35,7 @@ public:
         }
     }
 
-    bool loadAll(const std::string& prefix = "") {
+    bool loadAll(const std::string& prefix = "data/") {
         const char* streets[] = {"preflop", "flop", "turn", "river"};
         bool success = true;
 

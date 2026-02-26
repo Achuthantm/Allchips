@@ -84,12 +84,19 @@ void generate_turn_table(const hand_indexer_t* indexer, const vector<EHSData>& r
         uint64_t used_mask = 0;
         for(int j = 0; j < 6; ++j) used_mask |= (1ULL << cards[j]);
         
+        hand_indexer_state_t base_state;
+        hand_indexer_state_init(indexer, &base_state);
+        hand_index_next_round(indexer, cards, &base_state);     // R0
+        hand_index_next_round(indexer, cards + 2, &base_state); // R1
+        hand_index_next_round(indexer, cards + 5, &base_state); // R2
+
         double sum_hs = 0, sum_hs2 = 0;
         int count = 0;
         for(int c = 0; c < 52; ++c) {
             if((used_mask >> c) & 1) continue;
             cards[6] = c;
-            hand_index_t r_idx = hand_index_last(indexer, cards);
+            hand_indexer_state_t state = base_state;
+            hand_index_t r_idx = hand_index_next_round(indexer, cards + 6, &state);
             sum_hs += river_table[r_idx].ehs;
             sum_hs2 += river_table[r_idx].ehs2;
             count++;
@@ -110,14 +117,18 @@ void generate_flop_table(const hand_indexer_t* indexer, const vector<EHSData>& t
         uint64_t used_mask = 0;
         for(int j = 0; j < 5; ++j) used_mask |= (1ULL << cards[j]);
         
+        hand_indexer_state_t base_state;
+        hand_indexer_state_init(indexer, &base_state);
+        hand_index_next_round(indexer, cards, &base_state);     // R0
+        hand_index_next_round(indexer, cards + 2, &base_state); // R1
+
         double sum_hs = 0, sum_hs2 = 0;
         int count = 0;
         for(int c = 0; c < 52; ++c) {
             if((used_mask >> c) & 1) continue;
             cards[5] = c;
-            hand_index_t indices[4];
-            hand_index_all(indexer, cards, indices);
-            hand_index_t t_idx = indices[2]; // Round 2 (Turn)
+            hand_indexer_state_t state = base_state;
+            hand_index_t t_idx = hand_index_next_round(indexer, cards + 5, &state);
             sum_hs += turn_table[t_idx].ehs;
             sum_hs2 += turn_table[t_idx].ehs2;
             count++;
@@ -138,6 +149,10 @@ void generate_preflop_table(const hand_indexer_t* indexer, const vector<EHSData>
         uint64_t used_mask = 0;
         for(int j = 0; j < 2; ++j) used_mask |= (1ULL << cards[j]);
         
+        hand_indexer_state_t base_state;
+        hand_indexer_state_init(indexer, &base_state);
+        hand_index_next_round(indexer, cards, &base_state); // R0
+
         double sum_hs = 0, sum_hs2 = 0;
         int count = 0;
         for(int c1 = 0; c1 < 52; ++c1) {
@@ -149,9 +164,8 @@ void generate_preflop_table(const hand_indexer_t* indexer, const vector<EHSData>
                 for(int c3 = c2 + 1; c3 < 52; ++c3) {
                     if((used_mask >> c3) & 1) continue;
                     cards[4] = c3;
-                    hand_index_t indices[4];
-                    hand_index_all(indexer, cards, indices);
-                    hand_index_t f_idx = indices[1]; // Round 1 (Flop)
+                    hand_indexer_state_t state = base_state;
+                    hand_index_t f_idx = hand_index_next_round(indexer, cards + 2, &state);
                     sum_hs += flop_table[f_idx].ehs;
                     sum_hs2 += flop_table[f_idx].ehs2;
                     count++;
@@ -186,20 +200,20 @@ int main(int argc, char** argv) {
 
     vector<EHSData> river_table;
     generate_river_table(&indexer, river_table);
+    save_table("data/river_ehs.dat", river_table);
 
     vector<EHSData> turn_table;
     generate_turn_table(&indexer, river_table, turn_table);
+    save_table("data/turn_ehs.dat", turn_table);
 
     vector<EHSData> flop_table;
     generate_flop_table(&indexer, turn_table, flop_table);
+    save_table("data/flop_ehs.dat", flop_table);
 
     vector<EHSData> preflop_table;
     generate_preflop_table(&indexer, flop_table, preflop_table);
+    save_table("data/preflop_ehs.dat", preflop_table);
 
-    save_table("preflop_ehs.dat", preflop_table);
-    save_table("flop_ehs.dat", flop_table);
-    save_table("turn_ehs.dat", turn_table);
-    save_table("river_ehs.dat", river_table);
 
     auto total_end = chrono::system_clock::now();
     chrono::duration<double> total_elapsed = total_end - total_start;

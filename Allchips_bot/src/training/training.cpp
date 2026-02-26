@@ -133,7 +133,9 @@ public:
         
         // 1. Terminal Check: Fold
         if (history_len > 0 && ((history_bits & 0xF) == (FOLD + 1))) {
-            return (active_player == 0) ? (float)p2_bet : (float)-p1_bet;
+            // active_player is the one who folded. Utility for Player 0:
+            // If P0 folds, they lose p1_bet. If P1 folds, P0 wins p2_bet.
+            return (active_player == 0) ? (float)-p1_bet : (float)p2_bet;
         }
 
         // 2. Terminal Check: Round Transition or Showdown
@@ -141,8 +143,9 @@ public:
             if (round == 3) {
                 int s1 = evaluate_7cards(p1_cards[0], p1_cards[1], board[0], board[1], board[2], board[3], board[4]);
                 int s2 = evaluate_7cards(p2_cards[0], p2_cards[1], board[0], board[1], board[2], board[3], board[4]);
-                if (s1 < s2) return (float)p2_bet;
-                if (s1 > s2) return (float)-p1_bet;
+                // Lower score is better in phevaluator
+                if (s1 < s2) return (float)p2_bet; // P1 wins P2's contribution
+                if (s1 > s2) return (float)-p1_bet; // P1 loses their contribution
                 return 0.0f;
             } else {
                 // Transition to next round: Advance indexer states
@@ -152,6 +155,7 @@ public:
                 hand_index_t next_p1_idx = hand_index_next_round(&indexer, next_cards, &next_p1_state);
                 hand_index_t next_p2_idx = hand_index_next_round(&indexer, next_cards, &next_p2_state);
                 
+                // Heads-up: BB (1) acts first post-flop
                 return mccfr(p1_cards, p2_cards, board, 0, round + 1, p1_bet, p2_bet, 1, traversing_player, 0, 
                              next_p1_state, next_p2_state, next_p1_idx, next_p2_idx);
             }

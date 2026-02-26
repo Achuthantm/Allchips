@@ -52,7 +52,9 @@ public:
     // Game tracking
     uint64_t round_history_bits = 0;
     int last_pip[2] = {0, 0};
-    int round_action_count = 0;
+    int last_street = 0;
+    int sb_pos = 0;
+    int bb_pos = 1;
 
     Bot() : rng(std::random_device{}()) {
         loadModel("cpp_mccfr_model.dat");
@@ -87,23 +89,25 @@ public:
 
     void handleNewRound(GameInfoPtr gameState, RoundStatePtr roundState, int active) {
         round_history_bits = 0;
-        last_pip[0] = last_pip[1] = 0;
-        round_action_count = 0;
+        sb_pos = roundState->button;
+        bb_pos = 1 - sb_pos;
+        last_pip[sb_pos] = SMALL_BLIND;
+        last_pip[bb_pos] = BIG_BLIND;
+        last_street = 0;
     }
 
     void handleRoundOver(GameInfoPtr gameState, TerminalStatePtr terminalState, int active) {}
 
     // Reverse map opponent's bet to our abstraction
-    ModelAction reverseMap(int opp_bet, int my_bet, int pot_before_opp) {
-        int actual_raise = opp_bet - my_bet;
-        if (actual_raise <= 0) return CALL;
+    ModelAction reverseMap(int current_opp_pip, int last_opp_pip, int my_pip, int pot_at_start) {
+        if (current_opp_pip <= my_pip) return CALL;
 
-        int pot_after_call = pot_before_opp + actual_raise; 
+        int pot_after_call = pot_at_start + 2 * my_pip;
         
-        // Abstraction bets (Total Pip):
-        int d_call = my_bet;
-        int d_50 = my_bet + pot_after_call / 2;
-        int d_100 = my_bet + pot_after_call;
+        // Abstraction bets (Total Pip this street):
+        int d_call = my_pip;
+        int d_50 = my_pip + pot_after_call / 2;
+        int d_100 = my_pip + pot_after_call;
         int d_ai = STARTING_STACK;
 
         // Closest relative distance mapping
@@ -116,9 +120,14 @@ public:
 
         for (size_t i = 0; i < options.size(); ++i) {
             double rel = 0;
-            if (opp_bet == options[i].first) rel = 1.0;
-            else if (opp_bet > options[i].first) rel = (double)opp_bet / options[i].first;
-            else rel = (double)options[i].first / opp_bet;
+            if (current_opp_pip == options[i].first) rel = 1.0;
+            else if (current_opp_pip > options[i].first) {
+                if (options[i].first == 0) rel = (double)current_opp_pip;
+                else rel = (double)current_opp_pip / options[i].first;
+            } else {
+                if (current_opp_pip == 0) rel = (double)options[i].first;
+                else rel = (double)options[i].first / current_opp_pip;
+            }
 
             if (rel < min_rel) {
                 min_rel = rel;
@@ -129,19 +138,24 @@ public:
     }
 
     Action getAction(GameInfoPtr gameState, RoundStatePtr roundState, int active) {
-        auto legalActions = roundState->legalActions();
         int street = roundState->street;
-        
+        if (street != last_street) {
+            round_history_bits = 0;
+            last_pip[0] = last_pip[1] = 0;
+            last_street = street;
+        }
+
         // Map engine street to our round index
         int round_idx = (street == 0) ? 0 : (street == 3 ? 1 : (street == 4 ? 2 : 3));
 
         // Update history based on opponent's last move
         int opp = 1 - active;
-        if (roundState->pips[opp] > last_pip[opp]) {
-            int pot_before = 2 * STARTING_STACK - roundState->stacks[0] - roundState->stacks[1] - roundState->pips[0] - roundState->pips[1];
-            ModelAction opp_a = reverseMap(roundState->pips[opp], roundState->pips[active], pot_before);
+        int pot_at_start = 2 * STARTING_STACK - roundState->stacks[0] - roundState->stacks[1] - roundState->pips[0] - roundState->pips[1];
+        
+        bool we_are_first = (street == 0) ? (active == sb_pos) : (active == bb_pos);
+        if (!(we_are_first && round_history_bits == 0)) {
+            ModelAction opp_a = reverseMap(roundState->pips[opp], last_pip[opp], roundState->pips[active], pot_at_start);
             round_history_bits = push_history(round_history_bits, opp_a);
-            round_action_count++;
         }
         last_pip[opp] = roundState->pips[opp];
 
@@ -177,7 +191,7 @@ public:
             // Mask illegal actions
             bool legal[NUM_ACTIONS];
             int call_amt = roundState->pips[opp] - roundState->pips[active];
-            int pot = (2 * STARTING_STACK - roundState->stacks[0] - roundState->stacks[1]);
+            int pot = pot_at_start + roundState->pips[0] + roundState->pips[1];
             
             legal[FOLD] = (call_amt > 0);
             legal[CALL] = true;
@@ -206,7 +220,6 @@ public:
 
         // Map back to engine actions
         round_history_bits = push_history(round_history_bits, chosen_a);
-        round_action_count++;
 
         if (chosen_a == FOLD) return {Action::Type::FOLD};
         if (chosen_a == CALL) {
@@ -215,7 +228,7 @@ public:
         }
         
         auto raiseBounds = roundState->raiseBounds();
-        int pot = (2 * STARTING_STACK - roundState->stacks[0] - roundState->stacks[1]);
+        int pot = pot_at_start + roundState->pips[0] + roundState->pips[1];
         int call_amt = roundState->pips[opp] - roundState->pips[active];
         int pot_after_call = pot + call_amt;
         

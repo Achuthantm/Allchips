@@ -11,8 +11,7 @@
 
 using namespace std;
 
-// Updated abstraction as requested: (169, 1000, 1000, 1000)
-const int buckets[] = {169, 1000, 1000, 1000};
+const int buckets[] = {169, 100, 100, 100};
 const int HISTOGRAM_BINS = 1000000;
 
 struct EHSData {
